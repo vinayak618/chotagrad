@@ -1,101 +1,105 @@
 import ctypes
 import numpy as np
 
-# Load the C++ library
-lib = ctypes.CDLL("./tensor_lib.so")
+# Load the shared library
+lib = ctypes.CDLL('./tensor_lib.so')  # Make sure this path is correct
 
-# Define the Tensor structure for ctypes
-class CTensor(ctypes.Structure):
+# Define the function signatures
+lib.create_tensor_float.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+lib.create_tensor_float.restype = ctypes.c_void_p
+
+lib.free_tensor_float.argtypes = [ctypes.c_void_p]
+lib.free_tensor_float.restype = None
+
+lib.print_tensor_float.argtypes = [ctypes.c_void_p]
+lib.print_tensor_float.restype = None
+
+lib.set_tensor_data_float.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int]
+lib.set_tensor_data_float.restype = None
+
+lib.tensor_add_float.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+lib.tensor_add_float.restype = None
+
+lib.tensor_multiply_float.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+lib.tensor_multiply_float.restype = None
+
+def create_tensor(shape):
+    shape_array = (ctypes.c_int * len(shape))(*shape)
+    return lib.create_tensor_float(shape_array, len(shape))
+
+def free_tensor(tensor):
+    lib.free_tensor_float(tensor)
+
+def print_tensor(tensor):
+    lib.print_tensor_float(tensor)
+
+def set_tensor_data(tensor, data):
+    data_array = (ctypes.c_float * len(data))(*data)
+    lib.set_tensor_data_float(tensor, data_array, len(data))
+
+class Tensor_C(ctypes.Structure):
     _fields_ = [("data", ctypes.POINTER(ctypes.c_float)),
                 ("shape", ctypes.POINTER(ctypes.c_int)),
                 ("ndim", ctypes.c_int),
                 ("size", ctypes.c_int)]
 
-# Set up function signatures
-lib.create_tensor.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int]
-lib.create_tensor.restype = ctypes.c_void_p
-
-lib.free_tensor.argtypes = [ctypes.c_void_p]
-lib.free_tensor.restype = None
-
-lib.tensor_add.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-lib.tensor_add.restype = None
-
-lib.tensor_multiply.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-lib.tensor_multiply.restype = None
-
-lib.print_tensor.argtypes = [ctypes.c_void_p]
-lib.print_tensor.restype = None
-
 class Tensor:
-    def __init__(self, data):
-        # print("Debug: Initializing Tensor in Python")
-        if isinstance(data, np.ndarray):
-            self.np_array = data.astype(np.float32)
-        elif isinstance(data, list):
-            self.np_array = np.array(data, dtype=np.float32)
-        else:
-            raise ValueError("Input must be a NumPy array or a list")
-
-        shape = self.np_array.shape
-        ndim = self.np_array.ndim
-        c_shape = (ctypes.c_int * ndim)(*shape)
-        
-        # print(f"Debug: Creating tensor with shape {shape} and ndim {ndim}")
-        self.c_tensor = lib.create_tensor(c_shape, ndim)
-        if not self.c_tensor:
-            raise MemoryError("Failed to create tensor in C++")
-        
-        # Create a ctypes array from the numpy array
-        c_array = (ctypes.c_float * self.np_array.size)(*self.np_array.flatten())
-        
-        # Copy the data to the C++ tensor
-        ctypes.memmove(CTensor.from_address(self.c_tensor).data, c_array, self.np_array.nbytes)
-        # print("Debug: Finished initializing Tensor")
-
-    def __del__(self):
-        # print("Debug: Deleting Tensor in Python")
-        if hasattr(self, 'c_tensor') and self.c_tensor:
-            lib.free_tensor(self.c_tensor)
+    def __init__(self, c_pointer):
+        self.c_pointer = c_pointer
 
     def __add__(self, other):
-        if not isinstance(other, Tensor):
-            raise ValueError("Can only add Tensor objects")
-        
-        result = Tensor(np.zeros_like(self.np_array))  # Create a new tensor with the same shape
-        lib.tensor_add(self.c_tensor, other.c_tensor, result.c_tensor)
-        return result
+        result = create_tensor(self.shape())
+        lib.tensor_add_float(self.c_pointer, other.c_pointer, result)
+        return Tensor(result)
 
     def __mul__(self, other):
-        if not isinstance(other, Tensor):
-            raise ValueError("Can only multiply Tensor objects")
-        
-        result = Tensor(np.zeros_like(self.np_array))  # Create a new tensor with the same shape
-        lib.tensor_multiply(self.c_tensor, other.c_tensor, result.c_tensor)
-        return result
+        result = create_tensor(self.shape())
+        lib.tensor_multiply_float(self.c_pointer, other.c_pointer, result)
+        return Tensor(result)
 
-    def print(self):
-        # print("Debug: Calling print method in Python")
-        lib.print_tensor(self.c_tensor)
-        # print("Debug: Finished print method in Python")
+    def shape(self):
+        tensor = ctypes.cast(self.c_pointer, ctypes.POINTER(Tensor_C)).contents
+        return [tensor.shape[i] for i in range(tensor.ndim)]
 
-# Example usage
-if __name__ == "__main__":
+def main():
     print("Debug: Starting main")
-    a = Tensor([[1, 2], [3, 4]])
-    b = Tensor([[5, 6], [7, 8]])
     
+    # Create tensors
+    shape = [2, 2]
+    tensor_a = create_tensor(shape)
+    tensor_b = create_tensor(shape)
+
+    # Set data
+    set_tensor_data(tensor_a, [1.0, 2.0, 3.0, 4.0])
+    set_tensor_data(tensor_b, [5.0, 6.0, 7.0, 8.0])
+
+    # Print tensors
     print("Tensor a:")
-    a.print()
+    print_tensor(tensor_a)
     print("Tensor b:")
-    b.print()
-    
+    print_tensor(tensor_b)
+
+    # Wrap the C pointers in our Python Tensor class
+    a = Tensor(tensor_a)
+    b = Tensor(tensor_b)
+
+    # Now we can use Python's + operator
     c = a + b
-    print("a + b:")
-    c.print()
-    
+    print("Tensor c (a + b):")
+    print_tensor(c.c_pointer)
+
+    # Multiply tensors
     d = a * b
-    print("a * b:")
-    d.print()
-    
-    print("Debug: Finished main")
+    print("Tensor d (a * b):")
+    print_tensor(d.c_pointer)
+
+    # Free tensors
+    free_tensor(tensor_a)
+    free_tensor(tensor_b)
+    free_tensor(c.c_pointer)
+    free_tensor(d.c_pointer)
+
+    print("Debug: Ending main")
+
+if __name__ == "__main__":
+    main()
