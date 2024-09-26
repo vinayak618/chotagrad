@@ -4,88 +4,101 @@
 #include <cmath>
 #include <stdexcept>
 #include <random>
+#include <memory>
 
 namespace py = pybind11;
 
+template<typename T>
 class Tensor {
 public:
-    std::vector<float> data;
-    std::vector<int> shape;
+    std::unique_ptr<T[]> data;
+    std::unique_ptr<int[]> shape;
+    int ndim;
+    int size;
 
-    Tensor(const std::vector<int>& shape) : shape(shape) {
-        int size = 1;
-        for (int dim : shape) {
-            size *= dim;
+    Tensor(const std::vector<int>& shape_vec) : ndim(shape_vec.size()) {
+        shape = std::make_unique<int[]>(ndim);
+        std::copy(shape_vec.begin(), shape_vec.end(), shape.get());
+
+        size = 1;
+        for (int i = 0; i < ndim; ++i) {
+            size *= shape[i];
         }
-        data.resize(size);
+        data = std::make_unique<T[]>(size);
     }
 
-    void fill(float val) {
-        std::fill(data.begin(), data.end(), val);
+    void fill(T val) {
+        std::fill(data.get(), data.get() + size, val);
     }
 
     void random() {
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_real_distribution<> dis(0.0, 1.0);
-        for (float& elem : data) {
-            elem = dis(gen);
+        for (int i = 0; i < size; ++i) {
+            data[i] = static_cast<T>(dis(gen));
         }
     }
 
-    Tensor add(const Tensor& other) const {
-        if (shape != other.shape) {
-            throw std::runtime_error("Tensor shapes must match for addition");
+    std::shared_ptr<Tensor<T>> add(const Tensor<T>& other) const {
+        if (size != other.size) {
+            throw std::runtime_error("Tensor sizes do not match for addition");
         }
-        Tensor result(shape);
-        for (size_t i = 0; i < data.size(); ++i) {
-            result.data[i] = data[i] + other.data[i];
+
+        auto result = std::make_shared<Tensor<T>>(std::vector<int>(shape.get(), shape.get() + ndim));
+        for (int i = 0; i < size; ++i) {
+            result->data[i] = data[i] + other.data[i];
         }
         return result;
     }
 
-    Tensor mul(const Tensor& other) const {
-        if (shape != other.shape) {
-            throw std::runtime_error("Tensor shapes must match for multiplication");
+    std::shared_ptr<Tensor<T>> mul(const Tensor<T>& other) const {
+        if (size != other.size) {
+            throw std::runtime_error("Tensor sizes do not match for multiplication");
         }
-        Tensor result(shape);
-        for (size_t i = 0; i < data.size(); ++i) {
-            result.data[i] = data[i] * other.data[i];
-        }
-        return result;
-    }
 
-    float sum() const {
-        return std::accumulate(data.begin(), data.end(), 0.0f);
-    }
-
-    Tensor exp() const {
-        Tensor result(shape);
-        for (size_t i = 0; i < data.size(); ++i) {
-            result.data[i] = std::exp(data[i]);
+        auto result = std::make_shared<Tensor<T>>(std::vector<int>(shape.get(), shape.get() + ndim));
+        for (int i = 0; i < size; ++i) {
+            result->data[i] = data[i] * other.data[i];
         }
         return result;
     }
 
-    Tensor log() const {
-        Tensor result(shape);
-        for (size_t i = 0; i < data.size(); ++i) {
-            result.data[i] = std::log(data[i]);
+    T sum() const {
+        return std::accumulate(data.get(), data.get() + size, static_cast<T>(0));
+    }
+
+    std::shared_ptr<Tensor<T>> exp() const {
+        auto result = std::make_shared<Tensor<T>>(std::vector<int>(shape.get(), shape.get() + ndim));
+        for (int i = 0; i < size; ++i) {
+            result->data[i] = std::exp(data[i]);
+        }
+        return result;
+    }
+
+    std::shared_ptr<Tensor<T>> log() const {
+        auto result = std::make_shared<Tensor<T>>(std::vector<int>(shape.get(), shape.get() + ndim));
+        for (int i = 0; i < size; ++i) {
+            result->data[i] = std::log(data[i]);
         }
         return result;
     }
 };
 
 PYBIND11_MODULE(tensor_lib, m) {
-    py::class_<Tensor>(m, "Tensor")
+    py::class_<Tensor<float>, std::shared_ptr<Tensor<float>>>(m, "Tensor")
         .def(py::init<const std::vector<int>&>())
-        .def("fill", &Tensor::fill)
-        .def("random", &Tensor::random)
-        .def("add", &Tensor::add)
-        .def("mul", &Tensor::mul)
-        .def("sum", &Tensor::sum)
-        .def("exp", &Tensor::exp)
-        .def("log", &Tensor::log)
-        .def_readwrite("data", &Tensor::data)
-        .def_readwrite("shape", &Tensor::shape);
+        .def("fill", &Tensor<float>::fill)
+        .def("random", &Tensor<float>::random)
+        .def("add", &Tensor<float>::add)
+        .def("mul", &Tensor<float>::mul)
+        .def("sum", &Tensor<float>::sum)
+        .def("exp", &Tensor<float>::exp)
+        .def("log", &Tensor<float>::log)
+        .def_property_readonly("data", [](const Tensor<float>& t) {
+            return std::vector<float>(t.data.get(), t.data.get() + t.size);
+        })
+        .def_property_readonly("shape", [](const Tensor<float>& t) {
+            return std::vector<int>(t.shape.get(), t.shape.get() + t.ndim);
+        });
 }
