@@ -82,5 +82,3 @@ To expand this into a full tensor library, you might consider adding:
 3. **C++ Standard Library**: Familiarize yourself with more STL containers and algorithms.
 4. **Modern C++ Features**: Explore features like lambda functions, constexpr, and concepts.
 5. **Performance Optimization**: Learn about cache-friendly data layouts and SIMD instructions for faster tensor operations.
-
-Would you like to start by implementing any specific operation or concept from this list?
